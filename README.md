@@ -21,9 +21,6 @@ View and manage your learned vocabulary through the interface. Remove unwanted w
 ### 5. Auto-Capitalize
 Optional grammar correction that automatically capitalizes words at the start of sentences and after punctuation.
 
-### 6. Backup Integration
-Optional backup support through IntelliSenseBackup addon to preserve your learned words across reinstalls.
-
 ## Preview
 
 ![IntelliSense Interface](https://i.ibb.co/wNKc90YY/Download.png)
