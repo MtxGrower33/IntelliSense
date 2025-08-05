@@ -2,7 +2,7 @@
 ## Title: |cFFEEEEEEIntelli|cFF00AAFFSense|r
 ## Notes: Auto-complete words in the chatbox
 ## Author: Guzruul
-## Version: 1.0.0
+## Version: 1.0.1
 ## X-DBVersion: 1.0
 ## SavedVariables: IS_WORDS, IS_CONFIG
 ## OptionalDeps: IntelliSenseBackup
