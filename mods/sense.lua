@@ -71,6 +71,10 @@ IS:NewModule('Sense', function ()
 
         self.suggestionColor = IS.TEMPCONFIG.suggestionColor or self.suggestionColor
         IS.TEMPCONFIG.suggestionColor = self.suggestionColor
+        if IS.TEMPCONFIG.autoCapitalize == nil and not IS.TEMPCONFIG.autoCapitalizeSet then
+            IS.TEMPCONFIG.autoCapitalize = 1
+            IS.TEMPCONFIG.autoCapitalizeSet = 1
+        end
     end
 
     function CORE:FindMatch(text)
@@ -150,7 +154,6 @@ IS:NewModule('Sense', function ()
         end
 
         assert(foundWord and string.len(foundWord) > 0, 'LearnWord - extracted word is empty')
-        foundWord = string.lower(foundWord)
         debugprint('LearnWord - Found word to learn: ' .. foundWord)
 
         assert(IS.words, 'LearnWord - IS.words is nil')
@@ -166,9 +169,12 @@ IS:NewModule('Sense', function ()
                 IS.TEMPWORDS = {}
                 debugprint('LearnWord - Created IS.TEMPWORDS table')
             end
-            local nextIndex = table.getn(IS.TEMPWORDS) + 1
-            IS.TEMPWORDS[nextIndex] = foundWord
-            debugprint('LearnWord - Added word to dictionary: ' .. foundWord .. ' (total: ' .. table.getn(IS.TEMPWORDS) .. ')')
+            local firstLetter = string.lower(string.sub(foundWord, 1, 1))
+            if not IS.TEMPWORDS[firstLetter] then
+                IS.TEMPWORDS[firstLetter] = {}
+            end
+            table.insert(IS.TEMPWORDS[firstLetter], foundWord)
+            debugprint('LearnWord - Added word to dictionary: ' .. foundWord .. ' (letter: ' .. firstLetter .. ')')
             if IS.OnWordsChanged then IS:OnWordsChanged() end
             if IS.OnStatsChanged then IS:OnStatsChanged() end
         else
@@ -183,7 +189,7 @@ IS:NewModule('Sense', function ()
     function CORE:TrackNaturalUsage(text)
         local words = {}
         for word in string.gfind(text, '[^%s]+') do
-            table.insert(words, string.lower(word))
+            table.insert(words, word)
         end
 
         for i = 1, table.getn(words) do
@@ -203,14 +209,20 @@ IS:NewModule('Sense', function ()
         assert(IS.TEMPWORDS, 'RemoveWord - IS.TEMPWORDS is nil')
 
         local targetLower = string.lower(targetWord)
-        for i = 1, table.getn(IS.TEMPWORDS) do
-            local word = IS.TEMPWORDS[i]
+        local firstLetter = string.sub(targetLower, 1, 1)
+        local letterWords = IS.TEMPWORDS[firstLetter]
+        if not letterWords then
+            debugprint('RemoveWord - No words for letter: ' .. firstLetter)
+            return
+        end
+
+        for i = 1, table.getn(letterWords) do
+            local word = letterWords[i]
             if string.lower(word) == targetLower then
-                for j = i, table.getn(IS.TEMPWORDS) - 1 do
-                    local nextWord = IS.TEMPWORDS[j + 1]
-                    IS.TEMPWORDS[j] = nextWord
+                for j = i, table.getn(letterWords) - 1 do
+                    letterWords[j] = letterWords[j + 1]
                 end
-                IS.TEMPWORDS[table.getn(IS.TEMPWORDS)] = nil
+                letterWords[table.getn(letterWords)] = nil
                 debugprint('RemoveWord - Removed: ' .. targetWord)
                 if IS.OnWordsChanged then IS:OnWordsChanged() end
                 if IS.OnStatsChanged then IS:OnStatsChanged() end

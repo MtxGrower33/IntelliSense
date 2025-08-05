@@ -1,6 +1,6 @@
 ---@type function
 -- debugprint = debugprint
-debugprint = function() end
+-- debugprint = function() end
 debugprint('boot')
 
 -- addon name

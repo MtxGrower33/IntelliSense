@@ -9,6 +9,30 @@ IS:NewModule('Gui', function()
         wordElements = {},
     }
 
+    local function countHashTableWords(hashTable)
+        if not hashTable then return 0 end
+        local count = 0
+        for letter, words in pairs(hashTable) do
+            if type(words) == 'table' then
+                count = count + table.getn(words)
+            end
+        end
+        return count
+    end
+
+    local function getAllWordsFromHash(hashTable)
+        local allWords = {}
+        if not hashTable then return allWords end
+        for letter, words in pairs(hashTable) do
+            if type(words) == 'table' then
+                for i = 1, table.getn(words) do
+                    table.insert(allWords, words[i])
+                end
+            end
+        end
+        return allWords
+    end
+
     function CORE:ShowConfigFrame()
         if not self.configFrame then
             self.configFrame = IS.gui.Frame(UIParent, 600, 600, 0.4)
@@ -83,7 +107,7 @@ IS:NewModule('Gui', function()
         self.wordCountValue:SetPoint('TOPRIGHT', self.statsFrame, 'TOPRIGHT', -5, -self.firstWordOffset)
 
         assert(IS.words, 'IS.words is nil')
-        local internalCount = table.getn(IS.words)
+        local internalCount = countHashTableWords(IS.words)
         IS.gui.Font(self.statsFrame, 12, 'Internal Vocabulary:', self.grayColor, 'LEFT'):SetPoint('TOPLEFT', self.statsFrame, 'TOPLEFT', 5, -self.firstWordOffset - 20)
         self.internalVocabValue = IS.gui.Font(self.statsFrame, 12, internalCount, {1, 1, 1}, 'RIGHT')
         self.internalVocabValue:SetPoint('TOPRIGHT', self.statsFrame, 'TOPRIGHT', -5, -self.firstWordOffset - 20)
@@ -112,13 +136,7 @@ IS:NewModule('Gui', function()
         self.patternStrengthValue = IS.gui.Font(self.statsFrame, 12, '0', {1, 1, 1}, 'RIGHT')
         self.patternStrengthValue:SetPoint('TOPRIGHT', self.statsFrame, 'TOPRIGHT', -5, -self.firstWordOffset - 140)
 
-        IS.gui.Font(self.statsFrame, 12, 'Backup Status:', self.grayColor, 'LEFT'):SetPoint('TOPLEFT', self.statsFrame, 'TOPLEFT', 5, -self.firstWordOffset - 190)
-        self.backupStatusValue = IS.gui.Font(self.statsFrame, 12, 'Disconnected', {1, 0, 0}, 'RIGHT')
-        self.backupStatusValue:SetPoint('TOPRIGHT', self.statsFrame, 'TOPRIGHT', -5, -self.firstWordOffset - 190)
 
-        IS.gui.Font(self.statsFrame, 12, 'Backup Words:', self.grayColor, 'LEFT'):SetPoint('TOPLEFT', self.statsFrame, 'TOPLEFT', 5, -self.firstWordOffset - 210)
-        self.backupWordsValue = IS.gui.Font(self.statsFrame, 12, '0', {1, 1, 1}, 'RIGHT')
-        self.backupWordsValue:SetPoint('TOPRIGHT', self.statsFrame, 'TOPRIGHT', -5, -self.firstWordOffset - 210)
     end
 
     function CORE:CreateInfo()
@@ -167,7 +185,8 @@ IS:NewModule('Gui', function()
     end
 
     function CORE:RebuildWordList()
-        debugprint('RebuildWordList - IS.TEMPWORDS count: ' .. (IS.TEMPWORDS and table.getn(IS.TEMPWORDS) or 'nil'))
+        local wordCount = countHashTableWords(IS.TEMPWORDS)
+        debugprint('RebuildWordList - IS.TEMPWORDS count: ' .. wordCount)
 
         local currentScroll = self.wordScrollframe:GetVerticalScroll()
 
@@ -185,16 +204,10 @@ IS:NewModule('Gui', function()
         end
         self.wordElements = {}
 
-        local sortedWords = {}
-        if IS.TEMPWORDS then
-            for i = 1, table.getn(IS.TEMPWORDS) do
-                local word = IS.TEMPWORDS[i]
-                if word then
-                    table.insert(sortedWords, word)
-                end
-            end
-            table.sort(sortedWords)
-        end
+        local sortedWords = getAllWordsFromHash(IS.TEMPWORDS)
+        table.sort(sortedWords, function(a, b)
+            return string.lower(a) < string.lower(b)
+        end)
 
         local yOffset = 0
         local elementIndex = 1
@@ -242,7 +255,7 @@ IS:NewModule('Gui', function()
     end
 
     function CORE:UpdateStats()
-        self.wordCountValue:SetText(self:FormatNumber(table.getn(IS.TEMPWORDS)))
+        self.wordCountValue:SetText(self:FormatNumber(countHashTableWords(IS.TEMPWORDS)))
         assert(IS.stats, 'IS.stats is nil')
         self.completionsValue:SetText(self:FormatNumber(IS.stats.completions))
         self.suggestionsValue:SetText(self:FormatNumber(IS.stats.suggestionsShown))
@@ -263,7 +276,7 @@ IS:NewModule('Gui', function()
         debugprint('UpdateStats - Calculating accuracy rate')
         debugprint('UpdateStats - Completions: ' .. IS.stats.completions)
         debugprint('UpdateStats - Suggestions shown: ' .. IS.stats.suggestionsShown)
-        
+
         local accuracyRate = 0
         if IS.stats.suggestionsShown > 0 then
             local rawRate = (IS.stats.completions / IS.stats.suggestionsShown) * 100
@@ -295,14 +308,7 @@ IS:NewModule('Gui', function()
         end
         self.patternStrengthValue:SetText(self:FormatNumber(patternStrength))
 
-        if IS.backup.connected then
-            self.backupStatusValue:SetText('Connected')
-            self.backupStatusValue:SetTextColor(0, 1, 0)
-        else
-            self.backupStatusValue:SetText('Disconnected')
-            self.backupStatusValue:SetTextColor(1, 0, 0)
-        end
-        self.backupWordsValue:SetText(self:FormatNumber(IS.backup.wordCount))
+
     end
 
     function CORE:UpdateWordList()

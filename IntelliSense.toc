@@ -3,9 +3,8 @@
 ## Notes: Auto-complete words in the chatbox
 ## Author: Guzruul
 ## Version: 1.0.1
-## X-DBVersion: 1.0
+## X-DBVersion: 1.1
 ## SavedVariables: IS_WORDS, IS_CONFIG
-## OptionalDeps: IntelliSenseBackup
 
 # core
 core\env.lua
