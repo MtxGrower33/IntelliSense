@@ -17,8 +17,15 @@ IS:NewModule('Sense', function ()
             end
             debugprint('searchWordList - Searching ' .. listType .. ' for: ' .. lastWordLower)
 
-            for i = 1, table.getn(wordList) do
-                local word = wordList[i]
+            local firstLetter = string.sub(lastWordLower, 1, 1)
+            local letterWords = wordList[firstLetter]
+            if not letterWords then
+                debugprint('searchWordList - No words for letter: ' .. firstLetter)
+                return nil
+            end
+
+            for i = 1, table.getn(letterWords) do
+                local word = letterWords[i]
                 local wordLower = string.lower(word)
                 if lastWordLen < string.len(word) and string.sub(wordLower, 1, lastWordLen) == lastWordLower then
                     local usage = IS.stats.wordUsage[word] or 0
@@ -39,8 +46,14 @@ IS:NewModule('Sense', function ()
 
         wordExists = function(wordList, targetWord, listType, useGetData)
             local targetLower = string.lower(targetWord)
-            for i = 1, table.getn(wordList) do
-                local word = wordList[i]
+            local firstLetter = string.sub(targetLower, 1, 1)
+            local letterWords = wordList[firstLetter]
+            if not letterWords then
+                return false
+            end
+
+            for i = 1, table.getn(letterWords) do
+                local word = letterWords[i]
                 if string.lower(word) == targetLower then
                     debugprint('LearnWord - Word exists in ' .. listType)
                     return true
@@ -207,6 +220,38 @@ IS:NewModule('Sense', function ()
         debugprint('RemoveWord - Word not found: ' .. targetWord)
     end
 
+    function CORE:ShouldCapitalize(text, wordPosition)
+        debugprint('ShouldCapitalize - wordPosition: ' .. wordPosition .. ', text: "' .. text .. '"')
+        if wordPosition == 1 then
+            debugprint('ShouldCapitalize - Start of text, should capitalize')
+            return true
+        end
+        local beforeWord = string.sub(text, 1, wordPosition - 1)
+        local foundPunctuation = string.find(beforeWord, '[%.%?%!]%s*$')
+        debugprint('ShouldCapitalize - beforeWord: "' .. beforeWord .. '", foundPunctuation: ' .. (foundPunctuation and 'true' or 'false'))
+        return foundPunctuation
+    end
+
+    function CORE:ProcessWordCase(matchedWord, lastWord, text, wordPosition)
+        debugprint('ProcessWordCase - matchedWord: "' .. matchedWord .. '", lastWord: "' .. lastWord .. '", autoCapitalize: ' .. (IS.TEMPCONFIG.autoCapitalize and 'true' or 'false'))
+        if not IS.TEMPCONFIG.autoCapitalize then
+            local result = lastWord .. string.sub(matchedWord, string.len(lastWord) + 1)
+            debugprint('ProcessWordCase - Auto-capitalize OFF, result: "' .. result .. '"')
+            return result
+        end
+
+        if self:ShouldCapitalize(text, wordPosition) then
+            local firstChar = string.upper(string.sub(matchedWord, 1, 1))
+            local restOfWord = string.sub(matchedWord, 2)
+            local result = firstChar .. restOfWord
+            debugprint('ProcessWordCase - Should capitalize, result: "' .. result .. '"')
+            return result
+        else
+            debugprint('ProcessWordCase - No capitalization needed, result: "' .. matchedWord .. '"')
+            return matchedWord
+        end
+    end
+
     function CORE:Hook()
         if not ChatFrameEditBox then
             debugprint 'Hook - ChatFrameEditBox not ready'
@@ -249,7 +294,9 @@ IS:NewModule('Sense', function ()
                 IS.TEMPCONFIG.wordUsage = IS.stats.wordUsage
                 if IS.OnStatsChanged then IS:OnStatsChanged() end
 
-                local newText = string.sub(text, 1, string.len(text) - string.len(lastWord)) .. lastWord .. string.sub(word, string.len(lastWord) + 1)
+                local wordPosition = string.len(text) - string.len(lastWord) + 1
+                local finalWord = self:ProcessWordCase(word, lastWord, text, wordPosition)
+                local newText = string.sub(text, 1, string.len(text) - string.len(lastWord)) .. finalWord .. ' '
                 ChatFrameEditBox:SetText(newText)
                 return
             end

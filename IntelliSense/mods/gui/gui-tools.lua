@@ -150,17 +150,20 @@ function IS.gui.Font(parent, size, text, colour, align)
     return font
 end
 
-function IS.gui.Checkbox(parent, text, width, height)
+function IS.gui.Checkbox(parent, text, width, height, textColor)
     local checkbox = CreateFrame("CheckButton", nil, parent or UIParent, "UICheckButtonTemplate")
     checkbox:SetWidth(width or 20)
     checkbox:SetHeight(height or 20)
 
     local label = checkbox:CreateFontString(nil, 'BACKGROUND')
     label:SetFont('Fonts\\FRIZQT__.TTF', 12, 'OUTLINE')
-    label:SetPoint("LEFT", checkbox, "RIGHT", 5, 0)
+    label:SetPoint("RIGHT", checkbox, "LEFT", -5, 0)
     label:SetText(text or "Checkbox")
-    label:SetTextColor(.9,.9,.9)
+
+    local defaultColor = textColor or {.9, .9, .9}
+    label:SetTextColor(defaultColor[1], defaultColor[2], defaultColor[3])
     checkbox.label = label
+    checkbox.defaultColor = defaultColor
 
     checkbox:SetChecked(false)
 
@@ -169,7 +172,7 @@ function IS.gui.Checkbox(parent, text, width, height)
 
     checkbox.Enable = function(self)
         origEnable(self)
-        self.label:SetTextColor(.9,.9,.9)
+        self.label:SetTextColor(self.defaultColor[1], self.defaultColor[2], self.defaultColor[3])
     end
 
     checkbox.Disable = function(self)

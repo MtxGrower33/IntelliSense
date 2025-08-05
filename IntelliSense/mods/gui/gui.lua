@@ -4,7 +4,7 @@ IS:NewModule('Gui', function()
     local CORE = {
         configFrame = nil,
         blueColor = {0, 0.67, 1},
-        grayColor = {0.55, 0.55, 0.55},
+        grayColor = {0.65, 0.65, 0.65},
         firstWordOffset = 30,
         wordElements = {},
     }
@@ -146,6 +146,13 @@ IS:NewModule('Gui', function()
             end)
         end)
 
+        self.autoCapitalizeCheckbox = IS.gui.Checkbox(self.configFrame, 'Auto-capitalize:      ', 20, 20, self.grayColor)
+        self.autoCapitalizeCheckbox:SetPoint('BOTTOMRIGHT', self.configFrame, 'BOTTOMRIGHT', -25, 45)
+        self.autoCapitalizeCheckbox:SetChecked(IS.TEMPCONFIG.autoCapitalize)
+        self.autoCapitalizeCheckbox:SetScript('OnClick', function()
+            IS.TEMPCONFIG.autoCapitalize = self.autoCapitalizeCheckbox:GetChecked()
+        end)
+
         local colorLabel = IS.gui.Font(self.configFrame, 12, 'Suggestion Color:', self.grayColor, 'LEFT')
         colorLabel:SetPoint('BOTTOMRIGHT', self.configFrame, 'BOTTOMRIGHT', -70, 20)
 
@@ -253,17 +260,28 @@ IS:NewModule('Gui', function()
         end
         self.mostUsedWordValue:SetText(mostUsedWord)
 
+        debugprint('UpdateStats - Calculating accuracy rate')
+        debugprint('UpdateStats - Completions: ' .. IS.stats.completions)
+        debugprint('UpdateStats - Suggestions shown: ' .. IS.stats.suggestionsShown)
+        
         local accuracyRate = 0
         if IS.stats.suggestionsShown > 0 then
-            accuracyRate = math.floor((IS.stats.completions / IS.stats.suggestionsShown) * 100)
+            local rawRate = (IS.stats.completions / IS.stats.suggestionsShown) * 100
+            accuracyRate = math.floor(rawRate)
+            debugprint('UpdateStats - Raw accuracy: ' .. rawRate .. ', floored: ' .. accuracyRate)
+        else
+            debugprint('UpdateStats - No suggestions shown yet, accuracy = 0')
         end
         self.accuracyRateValue:SetText(accuracyRate .. '%')
 
         if accuracyRate >= 70 then
+            debugprint('UpdateStats - High accuracy (>=70%), setting green color')
             self.accuracyRateValue:SetTextColor(0, 1, 0)
         elseif accuracyRate >= 30 then
+            debugprint('UpdateStats - Medium accuracy (30-69%), setting orange color')
             self.accuracyRateValue:SetTextColor(1, 0.65, 0)
         else
+            debugprint('UpdateStats - Low accuracy (<30%), setting red color')
             self.accuracyRateValue:SetTextColor(1, 0, 0)
         end
 

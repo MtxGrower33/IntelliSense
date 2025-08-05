@@ -18,7 +18,10 @@ Monitor your typing efficiency with detailed stats including completions used, c
 ### 4. Word Management
 View and manage your learned vocabulary through the interface. Remove unwanted words and track your personal dictionary growth.
 
-### 5. Backup Integration
+### 5. Auto-Capitalize
+Optional grammar correction that automatically capitalizes words at the start of sentences and after punctuation.
+
+### 6. Backup Integration
 Optional backup support through IntelliSenseBackup addon to preserve your learned words across reinstalls.
 
 ## Preview
