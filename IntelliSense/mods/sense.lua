@@ -1,0 +1,295 @@
+SHELL:LOCKED()
+
+IS:NewModule('Sense', function ()
+    local CORE = {
+        suggestion = nil,
+        measureText = nil,
+        framesCreated = false,
+        suggestionColor = {0, 1, 1},
+        matchBuffer = {}
+    }
+
+    local H = {
+        searchWordList = function(wordList, lastWordLower, lastWordLen, listType)
+            local matches = CORE.matchBuffer
+            while table.getn(matches) > 0 do
+                table.remove(matches)
+            end
+            debugprint('searchWordList - Searching ' .. listType .. ' for: ' .. lastWordLower)
+
+            for i = 1, table.getn(wordList) do
+                local word = wordList[i]
+                local wordLower = string.lower(word)
+                if lastWordLen < string.len(word) and string.sub(wordLower, 1, lastWordLen) == lastWordLower then
+                    local usage = IS.stats.wordUsage[word] or 0
+                    debugprint('searchWordList - Found match: ' .. word .. ' (usage: ' .. usage .. ')')
+                    table.insert(matches, {word = word, usage = usage})
+                end
+            end
+
+            if table.getn(matches) == 0 then
+                debugprint('searchWordList - No matches in ' .. listType)
+                return nil
+            end
+
+            table.sort(matches, function(a, b) return a.usage > b.usage end)
+            debugprint('searchWordList - Best match from ' .. listType .. ': ' .. matches[1].word .. ' (usage: ' .. matches[1].usage .. ')')
+            return matches[1].word
+        end,
+
+        wordExists = function(wordList, targetWord, listType, useGetData)
+            local targetLower = string.lower(targetWord)
+            for i = 1, table.getn(wordList) do
+                local word = wordList[i]
+                if string.lower(word) == targetLower then
+                    debugprint('LearnWord - Word exists in ' .. listType)
+                    return true
+                end
+            end
+            return false
+        end
+    }
+
+    function CORE:Initialize()
+        IS.stats.completions = IS.stats.completions or (IS.TEMPCONFIG.completions or 0)
+        IS.stats.suggestionsShown = IS.stats.suggestionsShown or (IS.TEMPCONFIG.suggestionsShown or 0)
+        IS.stats.charactersSaved = IS.stats.charactersSaved or (IS.TEMPCONFIG.charactersSaved or 0)
+        IS.stats.wordUsage = IS.stats.wordUsage or (IS.TEMPCONFIG.wordUsage or {})
+
+        self.suggestionColor = IS.TEMPCONFIG.suggestionColor or self.suggestionColor
+        IS.TEMPCONFIG.suggestionColor = self.suggestionColor
+    end
+
+    function CORE:FindMatch(text)
+        local lastWord = string.gsub(text, '.*[%s]+([^%s]*)$', '%1')
+        if lastWord == text then
+            lastWord = text
+        end
+
+        local lastWordLower = string.lower(lastWord)
+        local lastWordLen = string.len(lastWord)
+        debugprint('FindMatch - Cached lastWord length: ' .. lastWordLen .. ' for word: ' .. lastWord)
+
+        if lastWordLen == 0 then
+            debugprint('FindMatch - Early exit: empty lastWord')
+            return nil
+        end
+
+        local match = H.searchWordList(IS.words, lastWordLower, lastWordLen, 'base words')
+        if match then
+            return match, lastWord
+        end
+
+        if IS.TEMPWORDS then
+            local learnedMatch = H.searchWordList(IS.TEMPWORDS, lastWordLower, lastWordLen, 'learned words')
+            if learnedMatch then
+                return learnedMatch, lastWord
+            end
+        end
+        debugprint('FindMatch - No match found')
+        return nil
+    end
+
+    function CORE:CreateTxtFrame()
+        if self.framesCreated then return end
+        assert(ChatFrameEditBox, 'ChatFrameEditBox not available')
+
+        local suggestionFrame = CreateFrame('Frame', nil, UIParent)
+        suggestionFrame:SetFrameStrata('TOOLTIP')
+        suggestionFrame:SetFrameLevel(ChatFrameEditBox:GetFrameLevel() + 1)
+
+        self.suggestion = suggestionFrame:CreateFontString(nil, 'OVERLAY')
+        self.suggestion:SetFontObject(ChatFontNormal)
+        self.suggestion:SetTextColor(self.suggestionColor[1], self.suggestionColor[2], self.suggestionColor[3])
+
+        self.measureText = UIParent:CreateFontString(nil, 'OVERLAY')
+        self.measureText:SetFontObject(ChatFontNormal)
+        self.measureText:Hide()
+
+        self.framesCreated = true
+        debugprint 'CreateTxtFrame - UI components created'
+    end
+
+    function CORE:ClearSuggestion()
+        self.suggestion:ClearAllPoints()
+        self.suggestion:SetText('')
+    end
+
+    function CORE:ShowSuggestion(text, word, lastWord)
+        assert(self.suggestion, 'suggestion UI not created')
+
+        self.measureText:SetText(text)
+        local textWidth = self.measureText:GetStringWidth()
+
+        self.suggestion:ClearAllPoints()
+        self.suggestion:SetPoint('LEFT', ChatFrameEditBox, 'LEFT', 15 + ChatFrameEditBoxHeader:GetWidth() + textWidth, 0)
+        self.suggestion:SetText(string.sub(word, string.len(lastWord) + 1))
+    end
+
+    function CORE:LearnWord(text)
+        assert(text, 'LearnWord - text parameter is nil')
+        debugprint('LearnWord - Processing text: ' .. text)
+
+        local _, _, foundWord = string.find(text, '%*([^%*]+)%*')
+        if not foundWord then
+            debugprint('LearnWord - No learning pattern found')
+            return text
+        end
+
+        assert(foundWord and string.len(foundWord) > 0, 'LearnWord - extracted word is empty')
+        foundWord = string.lower(foundWord)
+        debugprint('LearnWord - Found word to learn: ' .. foundWord)
+
+        assert(IS.words, 'LearnWord - IS.words is nil')
+
+        local exists = H.wordExists(IS.words, foundWord, 'base dictionary', false)
+
+        if not exists and IS.TEMPWORDS then
+            exists = H.wordExists(IS.TEMPWORDS, foundWord, 'learned words', true)
+        end
+
+        if not exists then
+            if not IS.TEMPWORDS then
+                IS.TEMPWORDS = {}
+                debugprint('LearnWord - Created IS.TEMPWORDS table')
+            end
+            local nextIndex = table.getn(IS.TEMPWORDS) + 1
+            IS.TEMPWORDS[nextIndex] = foundWord
+            debugprint('LearnWord - Added word to dictionary: ' .. foundWord .. ' (total: ' .. table.getn(IS.TEMPWORDS) .. ')')
+            if IS.OnWordsChanged then IS:OnWordsChanged() end
+            if IS.OnStatsChanged then IS:OnStatsChanged() end
+        else
+            debugprint('LearnWord - Word already exists, skipping: ' .. foundWord)
+        end
+
+        local cleanText = string.gsub(text, '%*+([^%*]+)%*+', '%1')
+        debugprint('LearnWord - Cleaned text: ' .. cleanText)
+        return cleanText
+    end
+
+    function CORE:TrackNaturalUsage(text)
+        local words = {}
+        for word in string.gfind(text, '[^%s]+') do
+            table.insert(words, string.lower(word))
+        end
+
+        for i = 1, table.getn(words) do
+            local word = words[i]
+            if H.wordExists(IS.words, word, 'base words', false) or (IS.TEMPWORDS and H.wordExists(IS.TEMPWORDS, word, 'learned words', false)) then
+                IS.stats.wordUsage[word] = (IS.stats.wordUsage[word] or 0) + 1
+                IS.TEMPCONFIG.wordUsage = IS.stats.wordUsage
+                debugprint('TrackNaturalUsage - Incremented: ' .. word .. ' (usage: ' .. IS.stats.wordUsage[word] .. ')')
+            end
+        end
+
+        if IS.OnStatsChanged then IS:OnStatsChanged() end
+    end
+
+    function CORE:RemoveWord(targetWord)
+        assert(targetWord, 'RemoveWord - targetWord is nil')
+        assert(IS.TEMPWORDS, 'RemoveWord - IS.TEMPWORDS is nil')
+
+        local targetLower = string.lower(targetWord)
+        for i = 1, table.getn(IS.TEMPWORDS) do
+            local word = IS.TEMPWORDS[i]
+            if string.lower(word) == targetLower then
+                for j = i, table.getn(IS.TEMPWORDS) - 1 do
+                    local nextWord = IS.TEMPWORDS[j + 1]
+                    IS.TEMPWORDS[j] = nextWord
+                end
+                IS.TEMPWORDS[table.getn(IS.TEMPWORDS)] = nil
+                debugprint('RemoveWord - Removed: ' .. targetWord)
+                if IS.OnWordsChanged then IS:OnWordsChanged() end
+                if IS.OnStatsChanged then IS:OnStatsChanged() end
+                return
+            end
+        end
+        debugprint('RemoveWord - Word not found: ' .. targetWord)
+    end
+
+    function CORE:Hook()
+        if not ChatFrameEditBox then
+            debugprint 'Hook - ChatFrameEditBox not ready'
+            return
+        end
+        debugprint 'Hook - ChatFrameEditBox ready'
+
+        local originalOnTextChanged = _G.ChatEdit_OnTextChanged
+        local originalOnTabPressed = _G.ChatEdit_OnTabPressed
+        local originalOnEscapePressed = _G.ChatEdit_OnEscapePressed
+        local originalOnEnterPressed = _G.ChatEdit_OnEnterPressed
+
+        _G.ChatEdit_OnTextChanged = function()
+            if originalOnTextChanged then originalOnTextChanged() end
+
+            local text = ChatFrameEditBox:GetText()
+            local word, lastWord = self:FindMatch(text)
+            if word and lastWord then
+                IS.stats.suggestionsShown = IS.stats.suggestionsShown + 1
+                IS.TEMPCONFIG.suggestionsShown = IS.stats.suggestionsShown
+                if IS.OnStatsChanged then IS:OnStatsChanged() end
+                self:ShowSuggestion(text, word, lastWord)
+            else
+                self:ClearSuggestion()
+            end
+        end
+
+        _G.ChatEdit_OnTabPressed = function()
+            local text = ChatFrameEditBox:GetText()
+            local word, lastWord = self:FindMatch(text)
+            if word then
+                IS.stats.completions = IS.stats.completions + 1
+                IS.TEMPCONFIG.completions = IS.stats.completions
+
+                local savedChars = string.len(word) - string.len(lastWord)
+                IS.stats.charactersSaved = IS.stats.charactersSaved + savedChars
+                IS.TEMPCONFIG.charactersSaved = IS.stats.charactersSaved
+
+                IS.stats.wordUsage[word] = (IS.stats.wordUsage[word] or 0) + 1
+                IS.TEMPCONFIG.wordUsage = IS.stats.wordUsage
+                if IS.OnStatsChanged then IS:OnStatsChanged() end
+
+                local newText = string.sub(text, 1, string.len(text) - string.len(lastWord)) .. lastWord .. string.sub(word, string.len(lastWord) + 1)
+                ChatFrameEditBox:SetText(newText)
+                return
+            end
+            if originalOnTabPressed then originalOnTabPressed() end
+        end
+
+        _G.ChatEdit_OnEscapePressed = function()
+            if originalOnEscapePressed then originalOnEscapePressed(ChatFrameEditBox) end
+            self:ClearSuggestion()
+        end
+
+        _G.ChatEdit_OnEnterPressed = function()
+            debugprint 'ChatEdit_OnEnterPressed'
+            local text = ChatFrameEditBox:GetText()
+
+            -- track natural word usage
+            self:TrackNaturalUsage(text)
+
+            local cleanText = self:LearnWord(text)
+            if cleanText ~= text then
+                ChatFrameEditBox:SetText(cleanText)
+            end
+
+            if originalOnEnterPressed then originalOnEnterPressed(ChatFrameEditBox) end
+            self:ClearSuggestion()
+        end
+    end
+
+    CORE:Initialize()
+    CORE:CreateTxtFrame()
+    CORE:Hook()
+
+    -- expose
+    function IS:RemoveLearnedWord(targetWord)
+        return CORE:RemoveWord(targetWord)
+    end
+
+    function IS:UpdateSuggestionColor(color)
+        if CORE.suggestion then
+            CORE.suggestion:SetTextColor(color[1], color[2], color[3])
+        end
+    end
+end)

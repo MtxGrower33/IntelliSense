@@ -1,0 +1,9 @@
+## Interface: 11200
+## Title: |cFFEEEEEEIntelli|cFF00AAFFSense|r - Backup
+## Notes: Backup storage for IntelliSense words
+## Author: Guzruul
+## Version: 1.0.0
+## Dependencies: IntelliSense
+## SavedVariables: ISB_WORDS
+
+IntelliSenseBackup.lua
