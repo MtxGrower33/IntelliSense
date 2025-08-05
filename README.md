@@ -23,7 +23,7 @@ Optional backup support through IntelliSenseBackup addon to preserve your learne
 
 ## Preview
 
-![IntelliSense Interface](https://i.ibb.co/d0W9PfkF/prev1.png)
+![IntelliSense Interface](https://i.ibb.co/wNKc90YY/Download.png)
 
 ![Typing Demo](https://i.ibb.co/7tKxPSn1/ezgif-566e67d109cb3d.gif)
 
