@@ -2,9 +2,9 @@
 ## Title: |cFFEEEEEEIntelli|cFF00AAFFSense|r
 ## Notes: Auto-complete words in the chatbox
 ## Author: Guzruul
-## Version: 1.0.2
-## X-DBVersion: 1.2
-## SavedVariables: IS_WORDS, IS_CONTEXT, IS_CONFIG
+## Version: 1.0.3
+## X-DBVersion: 1.3
+## SavedVariables: IS_WORDS, IS_CONFIG, IS_CONTEXT, IS_TRIGRAMS
 
 # core
 core\env.lua

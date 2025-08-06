@@ -3,15 +3,32 @@
 IntelliSense is a WoW 1.12.1 addon that provides auto-completion for chat messages.
 It learns from your typing patterns and suggests word completions as you type.
 
+## Logic
+
+IntelliSense uses a 5-layered prediction system:
+
+### 1. Base Vocabulary
+Built-in dictionary of WoW-specific terms, locations, and common English words for initial suggestions.
+
+### 2. Learned Words
+Custom vocabulary expansion through asterisk notation (*word*) for domain-specific terms.
+
+### 3. Usage Statistics
+Frequency-based ranking system that prioritizes commonly used words in suggestions.
+
+### 4. Bigram Context
+Two-word relationship tracking ("going" → "to") for contextual predictions.
+
+### 5. Trigram Context
+Three-word sequence learning ("I need to" → "go") for advanced contextual accuracy.
+
 ## Features
 
 ### 1. Auto-Completion
-Real-time word suggestions appear as you type in chat. Press Tab to complete suggested words and save keystrokes.
-The addon learns your vocabulary and tracks usage patterns for better suggestions,also
-learns your word relationships and can predict the next word based on context.
+Real-time word suggestions appear as you type in chat with intelligent context awareness.
 
-### 2. Learning
-Teach new words by wrapping them in asterisks (*word*).
+### 2. Learning System
+Teach new words by wrapping them in asterisks (*word*) and automatic pattern recognition.
 
 ### 3. Statistics Dashboard
 Monitor your typing efficiency with detailed stats including completions used, characters saved, efficiency score, and most frequently used words. The efficiency score shows your completion rate - how often you accept suggestions when shown.
@@ -26,7 +43,7 @@ Optional grammar correction that automatically capitalizes words at the start of
 
 ![IntelliSense Interface](https://i.ibb.co/wNKc90YY/Download.png)
 
-![Typing Demo](https://i.ibb.co/99ts8MMN/ezgif-844102936866f2.gif)
+![Typing Demo](https://i.ibb.co/CKq3bQG4/1.gif)
 
 ## Installation
 

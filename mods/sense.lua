@@ -87,19 +87,49 @@ IS:NewModule('Sense', function ()
             return wordCount > 0 and string.lower(words[wordCount]) or nil
         end,
 
+        getPreviousTwoWords = function(text)
+            local beforeLastWord = string.gsub(text, '%s*[^%s]*$', '')
+            local words = {}
+            for word in string.gfind(beforeLastWord, '[^%s]+') do
+                table.insert(words, word)
+            end
+            local wordCount = table.getn(words)
+            if wordCount >= 2 then
+                return string.lower(words[wordCount - 1]), string.lower(words[wordCount])
+            elseif wordCount == 1 then
+                return nil, string.lower(words[wordCount])
+            else
+                return nil, nil
+            end
+        end,
+
         cleanupContext = function()
             local pairList = {}
             for word1, wordPairs in IS.TEMPCONTEXT do
                 for word2, usage in wordPairs do
-                    table.insert(pairList, {word1 = word1, word2 = word2, usage = usage})
+                    table.insert(pairList, {word1 = word1, word2 = word2, usage = usage, weightedUsage = usage, type = 'bigram'})
                 end
             end
+            for word1, word2Pairs in IS.TEMPTRIGRAMS do
+                for word2, word3Pairs in word2Pairs do
+                    for word3, usage in word3Pairs do
+                        local weightedUsage = usage * 0.5
+                        table.insert(pairList, {word1 = word1, word2 = word2, word3 = word3, usage = usage, weightedUsage = weightedUsage, type = 'trigram'})
+                    end
+                end
+            end
+            debugprint('cleanupContext - Weighted cleanup: trigrams 2x more likely to be removed')
 
-            table.sort(pairList, function(a, b) return a.usage < b.usage end)
+            table.sort(pairList, function(a, b) return a.weightedUsage < b.weightedUsage end)
 
+            local removed = 0
+            local bigramsRemoved = 0
+            local trigramsRemoved = 0
             for i = 1, C.CONTEXT_CLEANUP_BATCH_SIZE do
                 local pair = pairList[i]
-                if pair and IS.TEMPCONTEXT[pair.word1] then
+                if not pair then break end
+
+                if pair.type == 'bigram' and IS.TEMPCONTEXT[pair.word1] then
                     IS.TEMPCONTEXT[pair.word1][pair.word2] = nil
                     local hasEntries = nil
                     for k, v in IS.TEMPCONTEXT[pair.word1] do
@@ -109,10 +139,33 @@ IS:NewModule('Sense', function ()
                     if not hasEntries then
                         IS.TEMPCONTEXT[pair.word1] = nil
                     end
+                    IS.contextPairCount = IS.contextPairCount - 1
+                    bigramsRemoved = bigramsRemoved + 1
+                    removed = removed + 1
+                elseif pair.type == 'trigram' and IS.TEMPTRIGRAMS[pair.word1] and IS.TEMPTRIGRAMS[pair.word1][pair.word2] then
+                    IS.TEMPTRIGRAMS[pair.word1][pair.word2][pair.word3] = nil
+                    local hasWord3Entries = nil
+                    for k, v in IS.TEMPTRIGRAMS[pair.word1][pair.word2] do
+                        hasWord3Entries = true
+                        break
+                    end
+                    if not hasWord3Entries then
+                        IS.TEMPTRIGRAMS[pair.word1][pair.word2] = nil
+                        local hasWord2Entries = nil
+                        for k, v in IS.TEMPTRIGRAMS[pair.word1] do
+                            hasWord2Entries = true
+                            break
+                        end
+                        if not hasWord2Entries then
+                            IS.TEMPTRIGRAMS[pair.word1] = nil
+                        end
+                    end
+                    IS.trigramCount = IS.trigramCount - 1
+                    trigramsRemoved = trigramsRemoved + 1
+                    removed = removed + 1
                 end
             end
-            IS.contextPairCount = IS.contextPairCount - C.CONTEXT_CLEANUP_BATCH_SIZE
-            debugprint('cleanupContext - Removed ' .. C.CONTEXT_CLEANUP_BATCH_SIZE .. ' least used pairs')
+            debugprint('cleanupContext - Removed ' .. removed .. ' patterns (' .. bigramsRemoved .. ' bigrams, ' .. trigramsRemoved .. ' trigrams)')
         end,
 
         splitWords = function(text)
@@ -130,12 +183,22 @@ IS:NewModule('Sense', function ()
         IS.stats.charactersSaved = IS.stats.charactersSaved or (IS.TEMPCONFIG.charactersSaved or 0)
         IS.stats.wordUsage = IS.stats.wordUsage or (IS.TEMPCONFIG.wordUsage or {})
         IS.TEMPCONTEXT = IS.TEMPCONTEXT or {}
+        IS.TEMPTRIGRAMS = IS.TEMPTRIGRAMS or {}
         IS.contextPairCount = 0
+        IS.trigramCount = 0
         for word1, wordPairs in IS.TEMPCONTEXT do
             for word2, usage in wordPairs do
                 IS.contextPairCount = IS.contextPairCount + 1
             end
         end
+        for word1, word2Pairs in IS.TEMPTRIGRAMS do
+            for word2, word3Pairs in word2Pairs do
+                for word3, usage in word3Pairs do
+                    IS.trigramCount = IS.trigramCount + 1
+                end
+            end
+        end
+        debugprint('Initialize - Loaded ' .. IS.contextPairCount .. ' bigrams, ' .. IS.trigramCount .. ' trigrams')
 
         self.suggestionColor = IS.TEMPCONFIG.suggestionColor or self.suggestionColor
         IS.TEMPCONFIG.suggestionColor = self.suggestionColor
@@ -164,6 +227,18 @@ IS:NewModule('Sense', function ()
             return nil
         end
 
+        -- Check if context suggestion matches current prefix
+        local contextMatch = self:FindContextMatch(text)
+        if contextMatch then
+            local contextLower = string.lower(contextMatch)
+            if lastWordLen < string.len(contextMatch) and string.sub(contextLower, 1, lastWordLen) == lastWordLower then
+                debugprint('FindMatch - Context match fits prefix: ' .. contextMatch .. ' matches ' .. lastWord)
+                return contextMatch, lastWord
+            else
+                debugprint('FindMatch - Context match rejected: ' .. contextMatch .. ' does not match prefix ' .. lastWord)
+            end
+        end
+
         local match = H.searchWordList(IS.words, lastWordLower, lastWordLen, 'base words')
         if match then
             return match, lastWord
@@ -180,8 +255,28 @@ IS:NewModule('Sense', function ()
     end
 
     function CORE:FindContextMatch(text)
-        local prevWord = H.getPreviousWord(text)
+        local word1, word2 = H.getPreviousTwoWords(text)
+
+        -- Try trigram first (3-word context)
+        if word1 and word2 and IS.TEMPTRIGRAMS[word1] and IS.TEMPTRIGRAMS[word1][word2] then
+            local bestWord = nil
+            local bestUsage = 0
+            for nextWord, usage in IS.TEMPTRIGRAMS[word1][word2] do
+                if usage > bestUsage then
+                    bestWord = nextWord
+                    bestUsage = usage
+                end
+            end
+            if bestWord then
+                debugprint('FindContextMatch - Trigram match: ' .. word1 .. ' ' .. word2 .. ' -> ' .. bestWord .. ' (usage: ' .. bestUsage .. ')')
+                return bestWord
+            end
+        end
+
+        -- Fallback to bigram (2-word context)
+        local prevWord = word2 or H.getPreviousWord(text)
         if not prevWord or not IS.TEMPCONTEXT[prevWord] then
+            debugprint('FindContextMatch - No context available')
             return nil
         end
 
@@ -195,7 +290,7 @@ IS:NewModule('Sense', function ()
         end
 
         if bestWord then
-            debugprint('FindContextMatch - Found: ' .. prevWord .. ' -> ' .. bestWord .. ' (usage: ' .. bestUsage .. ')')
+            debugprint('FindContextMatch - Bigram match: ' .. prevWord .. ' -> ' .. bestWord .. ' (usage: ' .. bestUsage .. ')')
         end
         return bestWord
     end
@@ -206,6 +301,7 @@ IS:NewModule('Sense', function ()
             words[i] = string.lower(words[i])
         end
 
+        -- Track bigrams (2-word sequences)
         for i = 1, table.getn(words) - 1 do
             local word1 = words[i]
             local word2 = words[i + 1]
@@ -218,10 +314,32 @@ IS:NewModule('Sense', function ()
                 IS.contextPairCount = IS.contextPairCount + 1
             end
             IS.TEMPCONTEXT[word1][word2] = (IS.TEMPCONTEXT[word1][word2] or 0) + 1
-            debugprint('TrackContext - Learned: ' .. word1 .. ' -> ' .. word2 .. ' (usage: ' .. IS.TEMPCONTEXT[word1][word2] .. ')')
+            debugprint('TrackContext - Bigram: ' .. word1 .. ' -> ' .. word2 .. ' (usage: ' .. IS.TEMPCONTEXT[word1][word2] .. ')')
         end
 
-        if IS.contextPairCount > (IS.TEMPCONFIG.contextCleanupThreshold or 550) then
+        -- Track trigrams (3-word sequences)
+        for i = 1, table.getn(words) - 2 do
+            local word1 = words[i]
+            local word2 = words[i + 1]
+            local word3 = words[i + 2]
+
+            if not IS.TEMPTRIGRAMS[word1] then
+                IS.TEMPTRIGRAMS[word1] = {}
+            end
+            if not IS.TEMPTRIGRAMS[word1][word2] then
+                IS.TEMPTRIGRAMS[word1][word2] = {}
+            end
+
+            if not IS.TEMPTRIGRAMS[word1][word2][word3] then
+                IS.trigramCount = IS.trigramCount + 1
+            end
+            IS.TEMPTRIGRAMS[word1][word2][word3] = (IS.TEMPTRIGRAMS[word1][word2][word3] or 0) + 1
+            debugprint('TrackContext - Trigram: ' .. word1 .. ' ' .. word2 .. ' -> ' .. word3 .. ' (usage: ' .. IS.TEMPTRIGRAMS[word1][word2][word3] .. ')')
+        end
+
+        local totalPatterns = IS.contextPairCount + IS.trigramCount
+        if totalPatterns > (IS.TEMPCONFIG.contextCleanupThreshold or 550) then
+            debugprint('TrackContext - Cleanup triggered: ' .. totalPatterns .. ' total patterns')
             H.cleanupContext()
         end
     end
