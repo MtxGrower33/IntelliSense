@@ -1,6 +1,8 @@
 SHELL:LOCKED()
 
 IS:NewModule('Gui', function()
+    local DEFAULT_CONTEXT_CLEANUP_THRESHOLD = 550
+
     local CORE = {
         configFrame = nil,
         blueColor = {0, 0.67, 1},
@@ -12,7 +14,7 @@ IS:NewModule('Gui', function()
     local function countHashTableWords(hashTable)
         if not hashTable then return 0 end
         local count = 0
-        for letter, words in pairs(hashTable) do
+        for _, words in pairs(hashTable) do
             if type(words) == 'table' then
                 count = count + table.getn(words)
             end
@@ -23,7 +25,7 @@ IS:NewModule('Gui', function()
     local function getAllWordsFromHash(hashTable)
         local allWords = {}
         if not hashTable then return allWords end
-        for letter, words in pairs(hashTable) do
+        for _, words in pairs(hashTable) do
             if type(words) == 'table' then
                 for i = 1, table.getn(words) do
                     table.insert(allWords, words[i])
@@ -128,24 +130,26 @@ IS:NewModule('Gui', function()
         self.mostUsedWordValue = IS.gui.Font(self.statsFrame, 12, 'None', {1, 1, 1}, 'RIGHT')
         self.mostUsedWordValue:SetPoint('TOPRIGHT', self.statsFrame, 'TOPRIGHT', -5, -self.firstWordOffset - 100)
 
-        IS.gui.Font(self.statsFrame, 12, 'Accuracy Rate:', self.grayColor, 'LEFT'):SetPoint('TOPLEFT', self.statsFrame, 'TOPLEFT', 5, -self.firstWordOffset - 120)
-        self.accuracyRateValue = IS.gui.Font(self.statsFrame, 12, '0%', {1, 1, 1}, 'RIGHT')
-        self.accuracyRateValue:SetPoint('TOPRIGHT', self.statsFrame, 'TOPRIGHT', -5, -self.firstWordOffset - 120)
+        IS.gui.Font(self.statsFrame, 12, 'Efficiency Score:', self.grayColor, 'LEFT'):SetPoint('TOPLEFT', self.statsFrame, 'TOPLEFT', 5, -self.firstWordOffset - 120)
+        self.efficiencyScoreValue = IS.gui.Font(self.statsFrame, 12, '0%', {1, 1, 1}, 'RIGHT')
+        self.efficiencyScoreValue:SetPoint('TOPRIGHT', self.statsFrame, 'TOPRIGHT', -5, -self.firstWordOffset - 120)
 
         IS.gui.Font(self.statsFrame, 12, 'Pattern Strength:', self.grayColor, 'LEFT'):SetPoint('TOPLEFT', self.statsFrame, 'TOPLEFT', 5, -self.firstWordOffset - 140)
         self.patternStrengthValue = IS.gui.Font(self.statsFrame, 12, '0', {1, 1, 1}, 'RIGHT')
         self.patternStrengthValue:SetPoint('TOPRIGHT', self.statsFrame, 'TOPRIGHT', -5, -self.firstWordOffset - 140)
 
-
+        IS.gui.Font(self.statsFrame, 12, 'Context Pairs:', self.grayColor, 'LEFT'):SetPoint('TOPLEFT', self.statsFrame, 'TOPLEFT', 5, -self.firstWordOffset - 160)
+        self.contextPairsValue = IS.gui.Font(self.statsFrame, 12, '0/' .. (IS.TEMPCONFIG.contextCleanupThreshold or DEFAULT_CONTEXT_CLEANUP_THRESHOLD), {1, 1, 1}, 'RIGHT')
+        self.contextPairsValue:SetPoint('TOPRIGHT', self.statsFrame, 'TOPRIGHT', -5, -self.firstWordOffset - 160)
     end
 
     function CORE:CreateInfo()
         if self.infoFrame then return end
         local infoHeader = IS.gui.Font(self.configFrame, 14, 'Info:', self.blueColor)
-        infoHeader:SetPoint('BOTTOM', self.configFrame, 'BOTTOM', 61, 140)
+        infoHeader:SetPoint('BOTTOM', self.configFrame, 'BOTTOM', 61, 200)
 
         self.infoFrame = IS.gui.Frame(self.configFrame, 250, 60, 0.1)
-        self.infoFrame:SetPoint('BOTTOMRIGHT', self.configFrame, 'BOTTOMRIGHT', -20, 70)
+        self.infoFrame:SetPoint('BOTTOMRIGHT', self.configFrame, 'BOTTOMRIGHT', -20, 130)
         IS.gui.Font(self.infoFrame, 12, 'TOC Version:', self.grayColor, 'LEFT'):SetPoint('TOPLEFT', self.infoFrame, 'TOPLEFT', 5, -self.firstWordOffset + 20)
         IS.gui.Font(self.infoFrame, 12, info.TOCversion, {1, 1, 1}, 'RIGHT'):SetPoint('TOPRIGHT', self.infoFrame, 'TOPRIGHT', -5, -self.firstWordOffset + 20)
 
@@ -155,13 +159,23 @@ IS:NewModule('Gui', function()
 
     function CORE:CreateBottomControls()
         if self.colorPicker then return end
-
         self.resetButton = IS.gui.Button(self.configFrame, 'Reset', 50, 20, false, {1, 0, 0}, false)
         self.resetButton:SetPoint('BOTTOMRIGHT', self.configFrame, 'BOTTOMRIGHT', -200, 15)
         self.resetButton:SetScript('OnClick', function()
             IS.gui.Confirmbox('Reset all data and reload UI?', function()
                 CORE:ResetAll()
             end)
+        end)
+
+        self.limitSlider = IS.gui.Slider(self.configFrame, nil, 'Context Limit:', 100, 1000, 50, '%.0f', 100, 24)
+        self.limitSlider:SetPoint('BOTTOMRIGHT', self.configFrame, 'BOTTOMRIGHT', -55, 75)
+        self.limitSlider:SetValue(IS.TEMPCONFIG.contextCleanupThreshold or DEFAULT_CONTEXT_CLEANUP_THRESHOLD)
+        self.limitSlider:SetScript('OnValueChanged', function()
+            self.limitSlider.updateValueText()
+            local value = self.limitSlider:GetValue()
+            IS.TEMPCONFIG.contextCleanupThreshold = value
+            self:UpdateStats()
+            debugprint('Context cleanup threshold changed to: ' .. value)
         end)
 
         self.autoCapitalizeCheckbox = IS.gui.Checkbox(self.configFrame, 'Auto-capitalize:      ', 20, 20, self.grayColor)
@@ -240,7 +254,6 @@ IS:NewModule('Gui', function()
             self.wordScrollframe:SetVerticalScroll(validScroll)
             self.wordScrollframe.scrollBar:SetValue(validScroll)
         end
-
         debugprint('RebuildWordList - Created ' .. (elementIndex - 1) .. ' word elements')
     end
 
@@ -273,42 +286,44 @@ IS:NewModule('Gui', function()
         end
         self.mostUsedWordValue:SetText(mostUsedWord)
 
+        local currentPairs = IS.contextPairCount
+        local maxPairs = IS.TEMPCONFIG.contextCleanupThreshold or DEFAULT_CONTEXT_CLEANUP_THRESHOLD
+        self.contextPairsValue:SetText(currentPairs .. '/' .. maxPairs)
+
         debugprint('UpdateStats - Calculating accuracy rate')
         debugprint('UpdateStats - Completions: ' .. IS.stats.completions)
         debugprint('UpdateStats - Suggestions shown: ' .. IS.stats.suggestionsShown)
 
         local accuracyRate = 0
         if IS.stats.suggestionsShown > 0 then
-            local rawRate = (IS.stats.completions / IS.stats.suggestionsShown) * 100
+            local rawRate = math.min(100, (IS.stats.completions / math.max(1, IS.stats.suggestionsShown)) * 100)
             accuracyRate = math.floor(rawRate)
             debugprint('UpdateStats - Raw accuracy: ' .. rawRate .. ', floored: ' .. accuracyRate)
         else
             debugprint('UpdateStats - No suggestions shown yet, accuracy = 0')
         end
-        self.accuracyRateValue:SetText(accuracyRate .. '%')
+        self.efficiencyScoreValue:SetText(accuracyRate .. '%')
 
         if accuracyRate >= 70 then
             debugprint('UpdateStats - High accuracy (>=70%), setting green color')
-            self.accuracyRateValue:SetTextColor(0, 1, 0)
+            self.efficiencyScoreValue:SetTextColor(0, 1, 0)
         elseif accuracyRate >= 30 then
             debugprint('UpdateStats - Medium accuracy (30-69%), setting orange color')
-            self.accuracyRateValue:SetTextColor(1, 0.65, 0)
+            self.efficiencyScoreValue:SetTextColor(1, 0.65, 0)
         else
             debugprint('UpdateStats - Low accuracy (<30%), setting red color')
-            self.accuracyRateValue:SetTextColor(1, 0, 0)
+            self.efficiencyScoreValue:SetTextColor(1, 0, 0)
         end
 
         local patternStrength = 0
         if IS.stats.wordUsage then
-            for word, count in pairs(IS.stats.wordUsage) do
+            for _, count in pairs(IS.stats.wordUsage) do
                 if count > 1 then
                     patternStrength = patternStrength + 1
                 end
             end
         end
         self.patternStrengthValue:SetText(self:FormatNumber(patternStrength))
-
-
     end
 
     function CORE:UpdateWordList()

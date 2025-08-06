@@ -1,6 +1,8 @@
 SHELL:LOCKED()
 
 IS:NewModule('Sense', function ()
+    local lowerCache = {}
+
     local CORE = {
         suggestion = nil,
         measureText = nil,
@@ -9,12 +11,17 @@ IS:NewModule('Sense', function ()
         matchBuffer = {}
     }
 
+    local C = {
+        CONTEXT_CLEANUP_BATCH_SIZE = 50,
+        SUGGESTION_X_OFFSET = 15,
+        FRAME_LEVEL_INCREMENT = 1,
+        AUTO_CAPITALIZE_DEFAULT = 1
+    }
+
     local H = {
         searchWordList = function(wordList, lastWordLower, lastWordLen, listType)
-            local matches = CORE.matchBuffer
-            while table.getn(matches) > 0 do
-                table.remove(matches)
-            end
+            local matches = {}
+            CORE.matchBuffer = matches
             debugprint('searchWordList - Searching ' .. listType .. ' for: ' .. lastWordLower)
 
             local firstLetter = string.sub(lastWordLower, 1, 1)
@@ -26,7 +33,11 @@ IS:NewModule('Sense', function ()
 
             for i = 1, table.getn(letterWords) do
                 local word = letterWords[i]
-                local wordLower = string.lower(word)
+                local wordLower = lowerCache[word]
+                if not wordLower then
+                    wordLower = string.lower(word)
+                    lowerCache[word] = wordLower
+                end
                 if lastWordLen < string.len(word) and string.sub(wordLower, 1, lastWordLen) == lastWordLower then
                     local usage = IS.stats.wordUsage[word] or 0
                     debugprint('searchWordList - Found match: ' .. word .. ' (usage: ' .. usage .. ')')
@@ -54,12 +65,62 @@ IS:NewModule('Sense', function ()
 
             for i = 1, table.getn(letterWords) do
                 local word = letterWords[i]
-                if string.lower(word) == targetLower then
+                local wordLower = lowerCache[word]
+                if not wordLower then
+                    wordLower = string.lower(word)
+                    lowerCache[word] = wordLower
+                end
+                if wordLower == targetLower then
                     debugprint('LearnWord - Word exists in ' .. listType)
                     return true
                 end
             end
             return false
+        end,
+
+        getPreviousWord = function(text)
+            local words = {}
+            for word in string.gfind(text, '[^%s]+') do
+                table.insert(words, word)
+            end
+            local wordCount = table.getn(words)
+            return wordCount > 0 and string.lower(words[wordCount]) or nil
+        end,
+
+        cleanupContext = function()
+            local pairList = {}
+            for word1, wordPairs in IS.TEMPCONTEXT do
+                for word2, usage in wordPairs do
+                    table.insert(pairList, {word1 = word1, word2 = word2, usage = usage})
+                end
+            end
+
+            table.sort(pairList, function(a, b) return a.usage < b.usage end)
+
+            for i = 1, C.CONTEXT_CLEANUP_BATCH_SIZE do
+                local pair = pairList[i]
+                if pair and IS.TEMPCONTEXT[pair.word1] then
+                    IS.TEMPCONTEXT[pair.word1][pair.word2] = nil
+                    local hasEntries = nil
+                    for k, v in IS.TEMPCONTEXT[pair.word1] do
+                        hasEntries = true
+                        break
+                    end
+                    if not hasEntries then
+                        IS.TEMPCONTEXT[pair.word1] = nil
+                    end
+                end
+            end
+            IS.contextPairCount = IS.contextPairCount - C.CONTEXT_CLEANUP_BATCH_SIZE
+            debugprint('cleanupContext - Removed ' .. C.CONTEXT_CLEANUP_BATCH_SIZE .. ' least used pairs')
+        end,
+
+        splitWords = function(text)
+            local words = {}
+            for word in string.gfind(text, '[^%s]+') do
+                table.insert(words, word)
+            end
+            return words
         end
     }
 
@@ -68,12 +129,19 @@ IS:NewModule('Sense', function ()
         IS.stats.suggestionsShown = IS.stats.suggestionsShown or (IS.TEMPCONFIG.suggestionsShown or 0)
         IS.stats.charactersSaved = IS.stats.charactersSaved or (IS.TEMPCONFIG.charactersSaved or 0)
         IS.stats.wordUsage = IS.stats.wordUsage or (IS.TEMPCONFIG.wordUsage or {})
+        IS.TEMPCONTEXT = IS.TEMPCONTEXT or {}
+        IS.contextPairCount = 0
+        for word1, wordPairs in IS.TEMPCONTEXT do
+            for word2, usage in wordPairs do
+                IS.contextPairCount = IS.contextPairCount + 1
+            end
+        end
 
         self.suggestionColor = IS.TEMPCONFIG.suggestionColor or self.suggestionColor
         IS.TEMPCONFIG.suggestionColor = self.suggestionColor
         if IS.TEMPCONFIG.autoCapitalize == nil and not IS.TEMPCONFIG.autoCapitalizeSet then
-            IS.TEMPCONFIG.autoCapitalize = 1
-            IS.TEMPCONFIG.autoCapitalizeSet = 1
+            IS.TEMPCONFIG.autoCapitalize = C.AUTO_CAPITALIZE_DEFAULT
+            IS.TEMPCONFIG.autoCapitalizeSet = C.AUTO_CAPITALIZE_DEFAULT
         end
     end
 
@@ -82,12 +150,16 @@ IS:NewModule('Sense', function ()
         if lastWord == text then
             lastWord = text
         end
-
         local lastWordLower = string.lower(lastWord)
         local lastWordLen = string.len(lastWord)
         debugprint('FindMatch - Cached lastWord length: ' .. lastWordLen .. ' for word: ' .. lastWord)
 
         if lastWordLen == 0 then
+            local contextMatch = self:FindContextMatch(text)
+            if contextMatch then
+                debugprint('FindMatch - Found context match: ' .. contextMatch)
+                return contextMatch, ''
+            end
             debugprint('FindMatch - Early exit: empty lastWord')
             return nil
         end
@@ -107,13 +179,60 @@ IS:NewModule('Sense', function ()
         return nil
     end
 
+    function CORE:FindContextMatch(text)
+        local prevWord = H.getPreviousWord(text)
+        if not prevWord or not IS.TEMPCONTEXT[prevWord] then
+            return nil
+        end
+
+        local bestWord = nil
+        local bestUsage = 0
+        for nextWord, usage in IS.TEMPCONTEXT[prevWord] do
+            if usage > bestUsage then
+                bestWord = nextWord
+                bestUsage = usage
+            end
+        end
+
+        if bestWord then
+            debugprint('FindContextMatch - Found: ' .. prevWord .. ' -> ' .. bestWord .. ' (usage: ' .. bestUsage .. ')')
+        end
+        return bestWord
+    end
+
+    function CORE:TrackContext(text)
+        local words = H.splitWords(text)
+        for i = 1, table.getn(words) do
+            words[i] = string.lower(words[i])
+        end
+
+        for i = 1, table.getn(words) - 1 do
+            local word1 = words[i]
+            local word2 = words[i + 1]
+
+            if not IS.TEMPCONTEXT[word1] then
+                IS.TEMPCONTEXT[word1] = {}
+            end
+
+            if not IS.TEMPCONTEXT[word1][word2] then
+                IS.contextPairCount = IS.contextPairCount + 1
+            end
+            IS.TEMPCONTEXT[word1][word2] = (IS.TEMPCONTEXT[word1][word2] or 0) + 1
+            debugprint('TrackContext - Learned: ' .. word1 .. ' -> ' .. word2 .. ' (usage: ' .. IS.TEMPCONTEXT[word1][word2] .. ')')
+        end
+
+        if IS.contextPairCount > (IS.TEMPCONFIG.contextCleanupThreshold or 550) then
+            H.cleanupContext()
+        end
+    end
+
     function CORE:CreateTxtFrame()
         if self.framesCreated then return end
         assert(ChatFrameEditBox, 'ChatFrameEditBox not available')
 
         local suggestionFrame = CreateFrame('Frame', nil, UIParent)
         suggestionFrame:SetFrameStrata('TOOLTIP')
-        suggestionFrame:SetFrameLevel(ChatFrameEditBox:GetFrameLevel() + 1)
+        suggestionFrame:SetFrameLevel(ChatFrameEditBox:GetFrameLevel() + C.FRAME_LEVEL_INCREMENT)
 
         self.suggestion = suggestionFrame:CreateFontString(nil, 'OVERLAY')
         self.suggestion:SetFontObject(ChatFontNormal)
@@ -187,10 +306,7 @@ IS:NewModule('Sense', function ()
     end
 
     function CORE:TrackNaturalUsage(text)
-        local words = {}
-        for word in string.gfind(text, '[^%s]+') do
-            table.insert(words, word)
-        end
+        local words = H.splitWords(text)
 
         for i = 1, table.getn(words) do
             local word = words[i]
@@ -201,6 +317,7 @@ IS:NewModule('Sense', function ()
             end
         end
 
+        self:TrackContext(text)
         if IS.OnStatsChanged then IS:OnStatsChanged() end
     end
 
@@ -304,6 +421,15 @@ IS:NewModule('Sense', function ()
 
                 IS.stats.wordUsage[word] = (IS.stats.wordUsage[word] or 0) + 1
                 IS.TEMPCONFIG.wordUsage = IS.stats.wordUsage
+
+                if lastWord == '' then
+                    local prevWord = H.getPreviousWord(text)
+                    if prevWord and IS.TEMPCONTEXT[prevWord] and IS.TEMPCONTEXT[prevWord][string.lower(word)] then
+                        IS.TEMPCONTEXT[prevWord][string.lower(word)] = IS.TEMPCONTEXT[prevWord][string.lower(word)] + 1
+                        debugprint('TabPressed - Context usage incremented: ' .. prevWord .. ' -> ' .. string.lower(word))
+                    end
+                end
+
                 if IS.OnStatsChanged then IS:OnStatsChanged() end
 
                 local wordPosition = string.len(text) - string.len(lastWord) + 1

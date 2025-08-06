@@ -321,3 +321,130 @@ function IS.gui.Confirmbox(message, onAccept, onDecline)
 
     return frame
 end
+
+-- function IS.gui.Dropdown(parent, text, width, height)
+--     local btn = IS.gui.Button(parent, text or "Dropdown", width or 120, height or 25)
+
+--     local popup = CreateFrame("Frame", nil, UIParent)
+--     popup:SetWidth(btn:GetWidth())
+--     popup:SetHeight(50)
+--     popup:SetPoint("TOP", btn, "BOTTOM", 0, -2)
+--     popup:SetFrameLevel(btn:GetFrameLevel() + 1)
+--     popup:SetFrameStrata("DIALOG")
+--     popup:EnableMouse(true)
+--     popup:Hide()
+
+--     local bg = popup:CreateTexture(nil, "BACKGROUND")
+--     bg:SetTexture("Interface\\Buttons\\WHITE8X8")
+--     bg:SetAllPoints(popup)
+--     bg:SetVertexColor(0, 0, 0, 0.8)
+
+--     btn.popup = popup
+--     btn.selectedValue = nil
+--     btn.items = {}
+
+--     btn.Clear = function(self)
+--         for i = 1, table.getn(self.items) do
+--             self.items[i]:Hide()
+--         end
+--         self.items = {}
+--         popup:SetHeight(10)
+--     end
+
+--     btn.AddItem = function(self, itemText, callback)
+--         local itemBtn = IS.gui.Button(popup, itemText, popup:GetWidth() - 4, 20, true)
+--         itemBtn:SetPoint("TOP", popup, "TOP", 0, -(table.getn(self.items)) * 22 - 5)
+--         itemBtn:SetScript("OnClick", callback or function()
+--             btn.text:SetText(itemText)
+--             btn.selectedValue = itemText
+--             popup:Hide()
+--         end)
+--         table.insert(self.items, itemBtn)
+--         popup:SetHeight(table.getn(self.items) * 22 + 10)
+--     end
+
+--     btn:SetScript("OnClick", function()
+--         if popup:IsVisible() then
+--             popup:Hide()
+--         else
+--             popup:Show()
+--         end
+--     end)
+
+--     return btn
+-- end
+
+function IS.gui.Slider(parent, name, text, minVal, maxVal, step, format, width, height)
+    local slider = CreateFrame("Slider", name, parent)
+    slider:SetWidth(width or 136)
+    slider:SetHeight(height or 24)
+    slider:SetOrientation("HORIZONTAL")
+    slider:SetThumbTexture("Interface\\Buttons\\UI-SliderBar-Button-Horizontal")
+    slider:SetBackdrop({
+        bgFile = "Interface\\Buttons\\UI-SliderBar-Background",
+        edgeFile = "Interface\\Buttons\\UI-SliderBar-Border",
+        tile = true, tileSize = 8, edgeSize = 8,
+        insets = { left = 3, right = 3, top = 6, bottom = 6 }
+    })
+
+    slider:SetMinMaxValues(minVal or 0, maxVal or 5)
+    slider:SetValueStep(step or 0.1)
+
+    local label = slider:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+    label:SetPoint("BOTTOMLEFT", slider, "TOPLEFT", 0, -0)
+    label:SetText(text or "Slider")
+    label:SetFont('Fonts\\FRIZQT__.TTF', 12, "OUTLINE")
+    label:SetTextColor(0.65, 0.65, 0.65)
+    slider.label = label
+
+    local valueText = slider:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+    valueText:SetPoint("LEFT", slider, "RIGHT", 5, 1)
+    valueText:SetTextColor(1, 1, 1)
+    valueText:SetFont('Fonts\\FRIZQT__.TTF', 12, "OUTLINE")
+    slider.valueText = valueText
+
+    local fmt = format or "%.1f"
+
+    slider:SetValue(minVal or 0)
+    valueText:SetText(string.format(fmt, minVal or 0))
+
+    local function updateValueText()
+        local newValue = slider:GetValue()
+        local roundedValue = math.floor(newValue * 10 + 0.5) / 10
+        valueText:SetText(string.format(fmt, roundedValue))
+    end
+
+    slider.updateValueText = updateValueText
+    slider:SetScript("OnValueChanged", updateValueText)
+
+    slider:EnableMouseWheel(true)
+    slider:SetScript("OnMouseWheel", function()
+        local wheelStep = step or 0.1
+        local value = this:GetValue()
+        local minValue, maxValue = this:GetMinMaxValues()
+
+        if arg1 > 0 then
+            value = math.min(value + wheelStep, maxValue)
+        else
+            value = math.max(value - wheelStep, minValue)
+        end
+        this:SetValue(value)
+    end)
+
+    local origEnable = slider.Enable
+    local origDisable = slider.Disable
+
+    slider.Enable = function(self)
+        origEnable(self)
+        self.label:SetTextColor(.9,.9,.9)
+        self.valueText:SetTextColor(1, 1, 1)
+    end
+
+    slider.Disable = function(self)
+        origDisable(self)
+        self.label:SetTextColor(0.5, 0.5, 0.5)
+        self.valueText:SetTextColor(0.5, 0.5, 0.5)
+    end
+
+    return slider
+end
