@@ -8,6 +8,7 @@ IS:SetScript('OnEvent', function()
     if event == 'PLAYER_ENTERING_WORLD' then
         IS:LoadDBs()
         IS:RunModules()
+        IS:UnregisterEvent'PLAYER_ENTERING_WORLD'
         print('IntelliSense loaded - V: ' .. info.TOCversion .. ' - open via /int')
     elseif event == 'PLAYER_LOGOUT' then
         IS:SaveDBs()
